@@ -173,7 +173,7 @@ QBCore.Functions.CreateCallback("qb-garage:server:checkOwnership", function(sour
                 cb(false)
             end
         end)
-    elseif garageType == "gang" then        --Gang garages only for gang members cars (for sharing)
+    elseif garageType.gang ~= nil then        --Gang garages only for gang members cars (for sharing)
          MySQL.query('SELECT * FROM player_vehicles WHERE plate = ?', {plate}, function(result)
             if result[1] then
                 local Player = QBCore.Functions.GetPlayer(source)

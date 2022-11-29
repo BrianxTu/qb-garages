@@ -78,6 +78,12 @@ local function PublicGarage(garageName, type)
     local garage = Garages[garageName]
     local categories = garage.vehicleCategories
     local superCategory = GetSuperCategoryFromCategories(categories)
+    local nickname = garage.type
+    if nickname.job ~= nil then
+        nickname = "job"
+    elseif nickname.gang ~= nil then
+        nickname = "gang"
+    end
 
     exports['qb-menu']:openMenu({
         {
@@ -93,7 +99,7 @@ local function PublicGarage(garageName, type)
                     garageId = garageName,
                     garage = garage,
                     categories = categories,
-                    header =  Lang:t("menu.header."..garage.type.."_"..superCategory, {value = garage.label}),
+                    header =  Lang:t("menu.header."..nickname.."_"..superCategory, {value = garage.label}),
                     superCategory = superCategory,
                     type = type
                 }
@@ -229,17 +235,17 @@ end
 local function IsAuthorizedToAccessGarage(garageName)
     local garage = Garages[garageName]
     if not garage then return false end
-    if garage.type == 'job' then
-        if type(garage.job) == "string" and not IsStringNilOrEmpty(garage.job) then
-            return PlayerJob.name == garage.job 
-        elseif type(garage.job) =="table" then
-            return TableContains(garage.job, PlayerJob.name)
+    if garage.type.job ~= nil then
+        if type(garage.type.job) == "string" and not IsStringNilOrEmpty(garage.type.job) then
+            return PlayerJob.name == garage.type.job 
+        elseif type(garage.type.job) == "table" then
+            return TableContains(garage.type.job, PlayerJob.name)
         end
-    elseif garage.type == 'gang' then 
-        if type(garage.gang) == "string" and  not IsStringNilOrEmpty(garage.gang) then
-            return garage.gang == PlayerGang.name
-        elseif type(garage.gang) =="table" then
-            return TableContains(garage.gang, PlayerGang.name)
+    elseif garage.type.gang ~= nil then 
+        if type(garage.type.gang) == "string" and  not IsStringNilOrEmpty(garage.type.gang) then
+            return garage.type.gang == PlayerGang.name
+        elseif type(garage.type.gang) == "table" then
+            return TableContains(garage.type.gang, PlayerGang.name)
         end
     end
     return true
@@ -289,7 +295,7 @@ local function ParkOwnedVehicle(veh, garageName, vehLocation, plate)
 
     local canPark, closestLocation = CanParkVehicle(veh, garageName, vehLocation)
     local closestVec3 = closestLocation and vector3(closestLocation.x,closestLocation.y, closestLocation.z) or nil
-    if not canPark and not garageName.useVehicleSpawner then return end
+    if not canPark and garage.VehicleSpawner ~= nil and not garageName.VehicleSpawner.active then return end
     local properties = QBCore.Functions.GetVehicleProperties(veh)
     TriggerServerEvent('qb-garage:server:updateVehicle', 1, totalFuel, engineDamage, bodyDamage, plate, properties, garageName, StoreParkinglotAccuratly and closestVec3 or nil, StoreDamageAccuratly and GetCarDamage(veh) or nil)
     ExitAndDeleteVehicle(veh)
@@ -319,9 +325,13 @@ local function ParkVehicle(veh, garageName, vehLocation)
     local type = garage and garage.type or 'house'
     local gang = PlayerGang.name
     QBCore.Functions.TriggerCallback('qb-garage:server:checkOwnership', function(owned)
-        if owned then
-           ParkOwnedVehicle(veh, garageName, vehLocation, plate)
-        elseif garage and garage.useVehicleSpawner and IsAuthorizedToAccessGarage(garageName) then
+        if owned and garage.type.job ~= nil and (garage.VehicleSpawner == nil or garage.VehicleSpawner.active == false) then
+            ParkOwnedVehicle(veh, garageName, vehLocation, plate)
+        elseif owned and garage.type.gang ~= nil and (garage.VehicleSpawner == nil or garage.VehicleSpawner.active == false) then
+            ParkOwnedVehicle(veh, garageName, vehLocation, plate)
+        elseif owned and (garage.VehicleSpawner == nil or garage.VehicleSpawner.active == false) then
+            ParkOwnedVehicle(veh, garageName, vehLocation, plate)
+        elseif not owned and garage.VehicleSpawner ~= nil and garage.VehicleSpawner.active and IsAuthorizedToAccessGarage(garageName) then
            ParkVehicleSpawnerVehicle(veh, vehLocation, vehLocation, plate)
         else
             QBCore.Functions.Notify(Lang:t("error.not_owned"), "error", 3500)
@@ -366,12 +376,12 @@ end
 local function UpdateRadialMenu()
     local garage = Garages[CurrentGarage]
     if CurrentGarage ~= nil and garage ~= nil then
-        if garage.type == 'job' and not IsStringNilOrEmpty(garage.job) then
+        if garage.type.job ~= nil and not IsStringNilOrEmpty(garage.type.job) then
             if IsAuthorizedToAccessGarage(CurrentGarage) then
                 AddRadialParkingOption()
             end
-        elseif garage.type == 'gang' and not IsStringNilOrEmpty(garage.gang) then
-            if PlayerGang.name == garage.gang then
+        elseif garage.type.gang ~= nil and not IsStringNilOrEmpty(garage.type.gang) then
+            if IsAuthorizedToAccessGarage(CurrentGarage) then
                 AddRadialParkingOption()
             end
         elseif garage.type == 'depot' then
@@ -456,13 +466,13 @@ end
 function JobMenuGarage(garageName)
     local job = QBCore.Functions.GetPlayerData().job.name
     local garage = Garages[garageName]
-    local jobGarage = JobVehicles[garage.jobGarageIdentifier]
+    local jobGarage = JobVehicles[garage.VehicleSpawner.garageIdentifier]
 
     if not jobGarage then
-        if garage.jobGarageIdentifier then
-            TriggerEvent('QBCore:Notify', string.format('Job garage with id %s not configured.', garage.jobGarageIdentifier), 'error', 5000)
+        if garage.VehicleSpawner.garageIdentifier then
+            TriggerEvent('QBCore:Notify', string.format('Job garage with id %s not configured.', garage.VehicleSpawner.garageIdentifier), 'error', 5000)
         else
-            TriggerEvent('QBCore:Notify', string.format("'jobGarageIdentifier' not defined on job garage %s ", garageName), 'error', 5000)
+            TriggerEvent('QBCore:Notify', string.format("'GarageIdentifier' not defined on job garage %s ", garageName), 'error', 5000)
         end
         return
     end
@@ -473,19 +483,71 @@ function JobMenuGarage(garageName)
         }
     }
 
-    local vehicles = jobGarage.vehicles[QBCore.Functions.GetPlayerData().job.grade.level]
-    for veh, label in pairs(vehicles) do
-        vehicleMenu[#vehicleMenu+1] = {
-            header = label,
-            txt = "",
-            params = {
-                event = "qb-garages:client:TakeOutGarage",
-                args = {
-                    vehicleModel = veh,
-                    garage = garage
+    for veh, abc in pairs(jobGarage.vehicles) do
+        for i = 1, #abc.ranks do
+            if QBCore.Functions.GetPlayerData().job.grade.level == abc.ranks[i] then
+                vehicleMenu[#vehicleMenu+1] = {
+                    header = abc.label,
+                    txt = "",
+                    params = {
+                        event = "qb-garages:client:TakeOutGarage",
+                        args = {
+                            vehicleModel = veh,
+                            garage = garage
+                        }
+                    }
                 }
-            }
+            end
+        end
+    end
+
+    vehicleMenu[#vehicleMenu+1] = {
+        header = Lang:t('menu.leave.job'),
+        txt = "",
+        params = {
+            event = "qb-menu:client:closeMenu"
         }
+
+    }
+    exports['qb-menu']:openMenu(vehicleMenu)
+end
+
+function GangMenuGarage(garageName)
+    local gang = QBCore.Functions.GetPlayerData().gang.name
+    local garage = Garages[garageName]
+    local gangGarage = GangVehicles[garage.VehicleSpawner.garageIdentifier]
+
+    if not gangGarage then
+        if garage.VehicleSpawner.garageIdentifier then
+            TriggerEvent('QBCore:Notify', string.format('Job garage with id %s not configured.', garage.VehicleSpawner.garageIdentifier), 'error', 5000)
+        else
+            TriggerEvent('QBCore:Notify', string.format("'GarageIdentifier' not defined on job garage %s ", garageName), 'error', 5000)
+        end
+        return
+    end
+    local vehicleMenu = {
+        {
+            header = gangGarage.label,
+            isMenuHeader = true
+        }
+    }
+
+    for veh, abc in pairs(gangGarage.vehicles) do
+        for i = 1, #abc.ranks do
+            if QBCore.Functions.GetPlayerData().gang.grade.level == abc.ranks[i] then
+                vehicleMenu[#vehicleMenu+1] = {
+                    header = abc.label,
+                    txt = "",
+                    params = {
+                        event = "qb-garages:client:TakeOutGarage",
+                        args = {
+                            vehicleModel = veh,
+                            garage = garage
+                        }
+                    }
+                }
+            end
+        end
     end
 
     vehicleMenu[#vehicleMenu+1] = {
@@ -618,7 +680,7 @@ end
 function UpdateSpawnedVehicle(spawnedVehicle, vehicleInfo, heading, garage, properties)
     QBCore.Functions.SetVehicleProperties(spawnedVehicle, properties)
     local plate = QBCore.Functions.GetPlate(spawnedVehicle)
-    if garage.useVehicleSpawner then
+    if garage.VehicleSpawner ~= nil and garage.VehicleSpawner.active then
         if plate then
             OutsideVehicles[plate] = spawnedVehicle
             TriggerServerEvent('qb-garages:server:UpdateOutsideVehicles', OutsideVehicles)
@@ -746,7 +808,7 @@ RegisterNetEvent('qb-garages:client:TakeOutGarage', function(data, cb)
     local parkingSpots = garage.ParkingSpots or {}
 
     local location, heading = GetSpawnLocationAndHeading(garage, garageType, parkingSpots, vehicle, spawnDistance)
-    if garage.useVehicleSpawner then
+    if garage.VehicleSpawner ~= nil and garage.VehicleSpawner.active then
         SpawnVehicleSpawnerVehicle(vehicleModel, location, heading, cb)
     else
         if SpawnVehicleServerside then
@@ -781,8 +843,10 @@ RegisterNetEvent('qb-garages:client:OpenMenu', function()
     if CurrentGarage then
         local garage = Garages[CurrentGarage]
         local type = garage.type
-        if type == 'job' and garage.useVehicleSpawner then
+        if garage.type.job ~= nil and garage.VehicleSpawner ~= nil and garage.VehicleSpawner.active then
             JobMenuGarage(CurrentGarage)
+        elseif garage.type.gang ~= nil and garage.VehicleSpawner ~= nil and garage.VehicleSpawner.active then
+            GangMenuGarage(CurrentGarage)
         else
             PublicGarage(CurrentGarage, type)
         end
@@ -902,16 +966,16 @@ end)
 
 CreateThread(function()
     for _, garage in pairs(Garages) do
-        if garage.showBlip then
-            local Garage = AddBlipForCoord(garage.blipcoords.x, garage.blipcoords.y, garage.blipcoords.z)
-            local blipColor = garage.blipColor ~= nil and garage.blipColor or 3
-            SetBlipSprite(Garage, garage.blipNumber)
+        if garage.blip ~= nil and garage.blip.showBlip then
+            local Garage = AddBlipForCoord(garage.blip.blipcoords.x, garage.blip.blipcoords.y, garage.blip.blipcoords.z)
+            local blipColor = garage.blip.blipColor ~= nil and garage.blip.blipColor or 3
+            SetBlipSprite(Garage, garage.blip.blipNumber)
             SetBlipDisplay(Garage, 4)
             SetBlipScale(Garage, 0.60)
             SetBlipAsShortRange(Garage, true)
             SetBlipColour(Garage, blipColor)
             BeginTextCommandSetBlipName("STRING")
-            AddTextComponentSubstringPlayerName(GarageNameAsBlipName and garage.label or garage.blipName)
+            AddTextComponentSubstringPlayerName(GarageNameAsBlipName and garage.label or garage.blip.blipName)
             EndTextCommandSetBlipName(Garage)
         end
     end
@@ -919,7 +983,7 @@ end)
 
 CreateThread(function()
     for garageName, garage in pairs(Garages) do
-        if(garage.type == 'public' or garage.type == 'depot' or garage.type == 'job' or garage.type == 'gang') then
+        if(garage.type == 'public' or garage.type == 'depot' or garage.type.job ~= nil or garage.type.gang ~= nil) then
             CreateGaragePolyZone(garageName)
         end
     end
